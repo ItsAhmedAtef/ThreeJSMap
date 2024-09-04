@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:kml="http://www.opengis.net/kml/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
+<Document>
+	<name>KML FileName</name>
+	<Placemark id="0F90BE1EFC32EE91B630">
+		<name>نقطة 1</name>
+		<Point>
+			<coordinates>34.21870344927912,31.32211209649623,3.954825792859305</coordinates>
+		</Point>
+	</Placemark>
+	<Placemark id="020155C3ED0A32EEB21F60">
+		<name>طريق</name>
+		<Point>
+			<coordinates>34.21998301221387,31.32072926505531,3.596580008474081</coordinates>
+		</Point>
+	</Placemark>
+</Document>
+</kml>

@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="ar-EG">
+    <head>
+        <meta charset="utf-8">
+        <meta name="author" content="Ahmed Atef">
+        <title>خريطة ثلاثية الأبعاد</title>
+        <link rel="icon" href="src/img/favicon.ico">
+        <style>
+            body {
+                margin: 0;
+            }
+            nav {
+                position: absolute;
+                display: flex;
+                justify-content: space-between;
+                width: 100%;
+                direction: rtl;
+                background: #fff;
+            }
+            nav div {
+                margin: 5px;
+            }
+            nav input {
+                direction: ltr;
+            }
+            nav button {
+                cursor: pointer;
+            }
+            #loading {
+                position: absolute;
+                display: flex;
+                justify-content: center;
+                width: 100%;
+                height: 100%;
+                background: #000000ad;
+            }
+            #loading_icon {
+                position: relative;
+                width: 40px;
+                margin: auto;
+                aspect-ratio: 1;
+                transform: rotate(45deg);
+            }
+            #loading_icon:before, #loading_icon:after {
+                content: "";
+                position: absolute;
+                inset: 0;
+                border-radius: 50% 50% 0 50%;
+                background: #514b82;
+                mask: radial-gradient(circle 10px at 50% 50%,#0000 94%,#000);
+                -webkit-mask: radial-gradient(circle 10px at 50% 50%,#0000 94%,#000);
+            }
+            #loading_icon:after {
+                animation: l6 1s infinite;
+                transform: perspective(300px) translateZ(0px);
+            }
+            @keyframes l6 {
+                to {
+                    transform: perspective(300px) translateZ(150px);
+                    opacity: 0;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <nav>
+            <div>
+                <input id="longitude" type="text" placeholder="خط الطول">
+                <input id="latitude" type="text" placeholder="دائرة العرض">
+                <button id="show_coords">عرض</button>
+            </div>
+            <div>
+                <button id="auto_rotate">دوران تلقائي</button>
+            </div>
+        </nav>
+
+        <div id="loading">
+            <div id="loading_icon"></div>
+        </div>
+
+        <script src="./src/js/jszip.min.js"></script>
+        <script type="module">
+            import * as THREE from "./src/js/three-0.167.1.js";
+            import * as TWEEN from "./src/js/tween-0.167.1.js";
+            import { OrbitControls } from "./src/js/OrbitControls-0.167.1.js";
+            import { GLTFLoader } from "./src/js/GLTFLoader-0.167.1.js";
+            import { mergeGeometries } from "./src/js/BufferGeometryUtils-0.167.1.js";
+
+            // Values
+            const far = 2000; // max far camera zoom before things starts to disappear
+            const minDistance = 2; // min camera zoom distance
+            const maxDistance = 2000; // max camera zoom distance
+            const mapX = 25;
+            const mapZ = -75;
+            const multiplyScalar = 10; // scale of things
+            const markerMultiplyScaler = multiplyScalar / 5; // scale of the marker icon
+            const textPositionY = 15.5;
+            const mapYRotation = Math.PI / -2;
+            const GridHelper = false; // show grid?
+            const x1 = 34.2190602; const Vx1 = -12.87843353716638 + mapX; // lon points and thier virtual
+            const x2 = 34.2183637; const Vx2 = -29.559834411395602 + mapX; // lon points and thier virtual
+            const z1 = 31.3226893; const Vz1 = 20.618728789956535 + mapZ; // lat points and thier virtual
+            const z2 = 31.3187691; const Vz2 = 131.181856699356 + mapZ; // lat points and thier virtual
+
+            let scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000); // Black world
+
+            let camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, far);
+            camera.position.set(0, 30, 20);
+
+            let renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            window.addEventListener("resize", (event) => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            let controls = new OrbitControls(camera, renderer.domElement);
+            controls.minDistance = minDistance;
+            controls.maxDistance = maxDistance;
+            controls.enableDamping = true;
+
+            let light = new THREE.DirectionalLight(0xffffff, Math.PI);
+            light.position.setScalar(1);
+            scene.add(light, new THREE.AmbientLight(0xffffff, 1));
+
+            if (GridHelper) scene.add(new THREE.GridHelper(20, 20));
+
+            function tween(inout) { // in - true, out - false
+                let desiredDistance = inout? controls.minDistance: controls.maxDistance;
+                let dir = new THREE.Vector3();
+                camera.getWorldDirection(dir);
+                dir.negate();
+                let dist = controls.getDistance();
+
+                new TWEEN.Tween({val: dist})
+                    .to({ val: desiredDistance }, 1000)
+                    .onUpdate(val => {
+                        camera.position.copy(controls.target).addScaledVector(dir, val.val);
+                    })
+                    .start();
+            };
+            renderer.setAnimationLoop(() => {
+                TWEEN.update();
+                controls.update();
+                renderer.render(scene, camera);
+            });
+
+            const loader = new GLTFLoader();
+            let load_glb = ( url, callback ) => {
+                // Load the resource
+                loader.load(
+                    url, // resource URL
+                    callback, // called when the resource is loaded
+                    function ( xhr ) {
+                        // called while loading is progressing
+                        console.log( ( xhr.loaded / xhr.total * 100 ) + "% loaded" );
+                    },
+                    function ( error ) {
+                        // called when loading has errors
+                        console.error( 'An error happened while loading: "' + url + '"' );
+                    }
+                );
+            };
+
+            const getTextMesh = (text, textScale, meshHeight, fontSize, bgColor = null) => {
+                const ratio = textScale / fontSize;
+                const canvasHeight = Math.ceil( meshHeight / ratio );
+
+                const textCanvas = document.createElement("canvas");
+                const ctx = textCanvas.getContext("2d");
+                ctx.font = fontSize + "px sans-serif";
+
+                const textWidth = ctx.measureText(text).width * ratio;
+                const meshWidth = textWidth + (meshHeight-textScale) + 1;
+                const canvasWidth = Math.ceil( meshWidth / ratio );
+
+                // Resize the texture canvas and fill the text
+                textCanvas.width = canvasWidth;
+                textCanvas.height = canvasHeight;
+
+                if ( bgColor ) {
+                    // Fill background if desired (transparent if none)
+                    ctx.fillStyle = bgColor;
+                    ctx.fillRect( 0, 0, canvasWidth, canvasHeight );
+                };
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle"; 
+                ctx.fillStyle = "#ffffff";
+                ctx.font = fontSize + "px sans-serif"; // Needed after resize
+                ctx.fillText(text, canvasWidth/2, canvasHeight/2);
+
+                const texture = new THREE.Texture(textCanvas);
+                texture.minFilter = THREE.LinearFilter;
+                texture.needsUpdate = true;
+
+                let geometry = new THREE.PlaneGeometry(meshWidth, meshHeight);
+                let material = new THREE.MeshBasicMaterial({
+                    side: THREE.FrontSide,
+                    map: texture,
+                    transparent: true
+                });
+
+                return new THREE.Mesh(
+                    mergeGeometries(
+                        [
+                            geometry,
+                            geometry.clone().rotateY(Math.PI)
+                        ],
+                        true // allow groups
+                    ),
+                    [
+                        material,
+                        material
+                    ]
+                );
+            };
+
+            const getKMLorKMZ = ( filePath ) => {
+                let isKMZ = filePath.endsWith(".kmz")? true: false;
+                fetch( filePath )
+                    .then( r => isKMZ? r.arrayBuffer(): r.text() )
+                    .then( async (data) => {
+                        if ( isKMZ ) {
+                            // Unzip the KMZ file
+                            const zip = await JSZip.loadAsync(data);
+
+                            // Find and parse the KML file within the KMZ
+                            const kmlFileName = Object.keys(zip.files).find( name => name.endsWith(".kml") );
+                            if (kmlFileName) {
+                                data = await zip.file(kmlFileName).async("text");
+                            };
+                        };
+
+                        const parser = new DOMParser();
+                        const xmlDoc = parser.parseFromString(data, "application/xml");
+
+                        const placemarks = xmlDoc.getElementsByTagName("Placemark");
+                        Array.from(placemarks).forEach( placemark => {
+                            let name = placemark.getElementsByTagName("name")[0]?.textContent;
+                            let coordinates = placemark.getElementsByTagName("coordinates")[0]?.textContent;
+                            coordinates = coordinates.split(",");
+                            if ( coordinates.length === 2 ) coordinates[2] = 0; // Only X,Z? => X,Z,Y
+                            if ( coordinates.length !== 3 ) return; // We need [X],[Z],Y only points
+                            coordinates = {
+                                lon: linearInterpolate(x1, Vx1, x2, Vx2, coordinates[0]),
+                                lat: linearInterpolate(z1, Vz1, z2, Vz2, coordinates[1])
+                            };
+
+                            load_glb( "src/import/blue_marker.glb", ( glb ) => {
+                                glb.scene.scale.multiplyScalar(markerMultiplyScaler);
+                                glb.scene.position.set( coordinates.lon, multiplyScalar, coordinates.lat );
+                                scene.add( glb.scene );
+                            });
+
+                            const txtMesh = getTextMesh( name, 2, 2, 100, "#000fff" );
+                            txtMesh.position.set( coordinates.lon, textPositionY, coordinates.lat );
+                            scene.add(txtMesh);
+                        });
+                    });
+            };
+
+            // load the map
+            load_glb( "src/import/map.glb", ( glb ) => {
+                let mapY = (multiplyScalar/3) - multiplyScalar;
+                glb.scene.position.set(mapX, mapY, mapZ);
+                glb.scene.rotation.y = mapYRotation;
+                glb.scene.scale.multiplyScalar(multiplyScalar);
+                scene.add( glb.scene );
+
+                document.getElementById("loading").style.display = "none";
+
+                // Now load data
+                [
+                    "src/data/test.kml",
+                    "src/data/test.kmz",
+                ].forEach( file => {
+                    getKMLorKMZ( file );
+                });
+            });
+
+            const linearInterpolate = (p1, Vp1, p2, Vp2, p3) => {
+                // Get Virtual point #3
+                return Vp1 + ((p3 - p1) * (Vp2 - Vp1)) / (p2 - p1);
+            };
+            const reverseLinearInterpolate = (p1, Vp1, p2, Vp2, Vp3) => {
+                // Get point #3
+                return ((Vp3 - Vp1) * (p2 - p1) + p1 * (Vp2 - Vp1)) / (Vp2 - Vp1);
+            };
+
+            let redMarker = null;
+            load_glb( "src/import/red_marker.glb", ( glb ) => {
+                glb.scene.scale.multiplyScalar(markerMultiplyScaler);
+                redMarker = glb;
+            });
+
+            const addMark = (x, z) => {
+                if (redMarker) {
+                    redMarker.scene.position.set( x, multiplyScalar, z );
+                    scene.add( redMarker.scene );
+                };
+            };
+
+            const smooth_camera_transition = ( x, z ) => {
+                new TWEEN.Tween({
+                        camX: camera.position.x,
+                        camY: camera.position.y,
+                        camZ: camera.position.z,
+                        conX: controls.target.x,
+                        conY: controls.target.y,
+                        conZ: controls.target.z
+                    }) // starts from
+                    .to({
+                        camX: x,
+                        camY: 30,
+                        camZ: z + 20,
+                        conX: x,
+                        conY: 0,
+                        conZ: z
+                    }, 1000) // to coords in milliseconds
+                    .onUpdate( c => {
+                        camera.position.set(c.camX, c.camY, c.camZ);
+                        controls.target.set(c.conX, c.conY, c.conZ);
+                    })
+                    .start();
+                controls.update();
+            };
+
+            const showCordsBTN = document.getElementById("show_coords");
+            const longitudeINPUT = document.getElementById("longitude");
+            const latitudeINPUT = document.getElementById("latitude");
+            showCordsBTN.addEventListener("click", () => {
+                let error = false;
+                let coords = {
+                    lon: null,
+                    lat: null
+                };
+
+                [{
+                    type: "lon",
+                    value: longitudeINPUT.value.trim()
+                }, {
+                    type: "lat",
+                    value: latitudeINPUT.value.trim()
+                }].forEach( INPUT => {
+
+                    if ( /^-?\d*\.\d+$/.test(INPUT.value) ) {
+                        coords[ INPUT.type ] = INPUT.value;
+                    } else {
+                        // E for lon and N for lat
+                        if (INPUT.value.indexOf("E") > -1 && INPUT.type == "lat") error = true;
+                        if (INPUT.value.indexOf("N") > -1 && INPUT.type == "lon") error = true;
+                        if (INPUT.value.indexOf("W") > -1 || INPUT.value.indexOf("S") > -1) error = true;
+
+                        // Replace invalid copy
+                        INPUT.value = INPUT.value.replace(/′/g, "'").replace(/″/g, '"');
+                        INPUT.value = INPUT.value.replace(/[^0-9°'"]+/g, "");
+
+                        const dmsPattern = /^(\d{1,3})°(\d{1,2})'(\d{1,2})"$/;
+                        const match = INPUT.value.match(dmsPattern);
+                        if ( match ) {
+                            const degrees = parseFloat(match[1]);
+                            const minutes = parseFloat(match[2]);
+                            const seconds = parseFloat(match[3]);
+                            coords[ INPUT.type ] = degrees + (minutes / 60) + (seconds / 3600);
+                        } else {
+                            error = true;
+                        };
+                    };
+
+                });
+
+                if ( error || !coords.lon || !coords.lat ) {
+                    alert('من فضلك أدخل الإحداثيات صحيحة!');
+                } else {
+                    controls.autoRotate = false;
+
+                    const x = linearInterpolate(x1, Vx1, x2, Vx2, coords.lon);
+                    const z = linearInterpolate(z1, Vz1, z2, Vz2, coords.lat);
+                    addMark( x, z );
+                    smooth_camera_transition( x, z );
+                };
+            });
+
+            const raycaster = new THREE.Raycaster();
+            const pointer = new THREE.Vector2();
+
+            window.addEventListener("click", (event) => {
+
+                if ( event.detail === 2 && event.target.tagName === "CANVAS" ) {
+                    // double click
+
+                    pointer.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+                    pointer.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+
+                    raycaster.setFromCamera( pointer, camera );
+                    const intersects = raycaster.intersectObjects( scene.children );
+
+                    if ( intersects.length > 0 ) {
+                        const intersect = intersects[0];
+                        console.log( intersect.point );
+                        addMark(intersect.point.x, intersect.point.z);
+                    };
+                };
+
+            });
+
+            const autoRotateBTN = document.getElementById("auto_rotate");
+            autoRotateBTN.addEventListener("click", () => {
+                controls.autoRotate = ! controls.autoRotate;
+            });
+
+            /**
+             * @TODO
+             * 
+             * Add Stars in the world
+             * Import / Export KMZ / KML Buttons
+             * Live coordinates with mouse hover
+             * Add Disclaimer (this is under development)
+             * On Zoom out smaller the marks a little bit
+            */
+
+        </script>
+    </body>
+</html>
